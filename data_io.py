@@ -10,7 +10,7 @@ import struct
 
 import sys
 
-from tqdm import tqdm
+#from tqdm import tqdm
 
 from fgnt.mask_estimation import estimate_IBM
 from fgnt.signal_processing import audioread
@@ -244,7 +244,7 @@ class DataLoader:
             indexes = indexes[:-(len(indexes) % self.batch_size)]
         indexes = indexes.reshape((-1, self.batch_size))
 
-        for batch_idxs in tqdm(indexes):
+        for batch_idxs in indexes:#tqdm(indexes):
             ids = [self.ids[i] for i in batch_idxs]
             batch = self.get_batch(ids, divisor = 16)
             batch['ids'] = ids

@@ -104,16 +104,16 @@ class ResNet():
         input_min = tf.reduce_min(self.inputs)
         self.scale_vars = []
         if 'masking' in output_type:
-            self.masking = self.outputs
+            self.masking = tf.identity(self.outputs)
             self.outputs = tf.multiply(tf.sigmoid(self.outputs), self.inputs - input_min) + input_min
             self.outputs = self.scale(inputs, name = 'mask', scale_init = 0.5)
             if 'fidelity' in output_type:
                 self.fidelity = self.fully_connected(flat, out_shape, name="fc_out")
                 self.outputs += self.scale(self.fidelity, name = 'map', scale_init = 0.5)
         elif 'fidelity' in output_type:
-            self.fidelity = self.outputs
+            self.fidelity = tf.identity(self.outputs)
             if 'map-as-mask-mimic' in output_type:
-                inputs = tf.multiply(maskify(self.outputs), self.inputs - input_min) + input_min
+                inputs = tf.multiply(self.maskify(self.outputs), self.inputs - input_min) + input_min
                 self.outputs = self.scale(self.fidelity, 'mask')
 
     def fully_connected(self, inputs, output_shape, name="fc"):

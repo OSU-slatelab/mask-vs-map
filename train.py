@@ -39,13 +39,13 @@ parser.add_argument("--lr_decay", type=float, default=0.95)
 # Model
 parser.add_argument("--glayers", type=int, default=2)
 parser.add_argument("--gunits", type=int, default=2048)
-parser.add_argument("--gfilters", type=int, nargs="+", default=[128, 256, 512, 1024])
+parser.add_argument("--gfilters", type=str, default="128 128 256 256")#type=int, nargs="+", default=[128, 128, 256, 256])
 parser.add_argument("--tlayers", type=int, default=2)
 parser.add_argument("--tunits", type=int, default=2048)
-parser.add_argument("--tfilters", type=int, nargs="+", default=[128, 256, 512, 1024])
+parser.add_argument("--tfilters", type=str, default="128 128 256 256") #type=int, nargs="+", default=[128, 128, 256, 256])
 parser.add_argument("--slayers", type=int, default=2)
 parser.add_argument("--sunits", type=int, default=2048)
-parser.add_argument("--sfilters", type=int, nargs="+", default=[128, 256, 512, 1024])
+parser.add_argument("--sfilters", type=str, default="128 128 256 256")#type=int, nargs="+", default=[128, 128, 256, 256])
 parser.add_argument("--dropout", type=float, default=0.3, help="percentage of neurons to drop")
 
 # Data
@@ -88,7 +88,7 @@ def run_training():
                     output_type = a.loss_weight.keys() & ['fidelity', 'masking', 'map-as-mask-mimic'],
                     fc_nodes    = a.gunits,
                     fc_layers   = a.glayers,
-                    filters     = a.gfilters,
+                    filters     = [int(f) for f in a.gfilters.split()],
                     dropout     = a.dropout,
                 )
             generator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='generator')
@@ -105,7 +105,7 @@ def run_training():
                     output_dim = a.senones,
                     fc_nodes   = a.tunits,
                     fc_layers  = a.tlayers,
-                    filters    = a.tfilters,
+                    filters    = [int(f) for f in a.tfilters.split()],
                     dropout    = 0,
                 )
             teacher_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='teacher')
@@ -125,7 +125,7 @@ def run_training():
                     output_dim = a.senones,
                     fc_nodes   = a.sunits,
                     fc_layers  = a.slayers,
-                    filters    = a.sfilters,
+                    filters    = [int(f) for f in a.sfilters.split()],
                     dropout    = a.dropout,
                 )
             student_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='mimic')
@@ -227,11 +227,11 @@ def run_training():
             if eval_loss < min_loss:
                 min_loss = eval_loss
                 if a.generator_checkpoints:
-                    save_file = os.path.join(a.generator_checkpoints, f"model-{eval_loss:.4f}.ckpt")
+                    save_file = os.path.join(a.generator_checkpoints, "model-{0:.4f}.ckpt".format(eval_loss))
                     save_path = generator_saver.save(sess, save_file, global_step = epoch)
 
                 if a.student_checkpoints:
-                    save_file = os.path.join(a.student_checkpoints, f"model-{eval_loss:.4f}.ckpt")
+                    save_file = os.path.join(a.student_checkpoints, "model-{0:.4f}.ckpt".format(eval_loss))
                     save_path = student_saver.save(sess, save_file, global_step = epoch)
 
 def main():
