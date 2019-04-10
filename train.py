@@ -39,13 +39,13 @@ parser.add_argument("--lr_decay", type=float, default=0.95)
 # Model
 parser.add_argument("--glayers", type=int, default=2)
 parser.add_argument("--gunits", type=int, default=2048)
-parser.add_argument("--gfilters", type=str, default="128 128 256 256")#type=int, nargs="+", default=[128, 128, 256, 256])
+parser.add_argument("--gfilters", type=int, nargs="+", default=[128, 128, 256, 256])
 parser.add_argument("--tlayers", type=int, default=2)
 parser.add_argument("--tunits", type=int, default=2048)
-parser.add_argument("--tfilters", type=str, default="128 128 256 256") #type=int, nargs="+", default=[128, 128, 256, 256])
+parser.add_argument("--tfilters", type=int, nargs="+", default=[128, 128, 256, 256])
 parser.add_argument("--slayers", type=int, default=2)
 parser.add_argument("--sunits", type=int, default=2048)
-parser.add_argument("--sfilters", type=str, default="128 128 256 256")#type=int, nargs="+", default=[128, 128, 256, 256])
+parser.add_argument("--sfilters", type=int, nargs="+", default=[128, 128, 256, 256])
 parser.add_argument("--dropout", type=float, default=0.3, help="percentage of neurons to drop")
 
 # Data
@@ -88,7 +88,7 @@ def run_training():
                     output_type = a.loss_weight.keys() & ['fidelity', 'masking', 'map-as-mask-mimic'],
                     fc_nodes    = a.gunits,
                     fc_layers   = a.glayers,
-                    filters     = [int(f) for f in a.gfilters.split()],
+                    filters     = a.gfilters,
                     dropout     = a.dropout,
                 )
             generator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='generator')
@@ -105,7 +105,7 @@ def run_training():
                     output_dim = a.senones,
                     fc_nodes   = a.tunits,
                     fc_layers  = a.tlayers,
-                    filters    = [int(f) for f in a.tfilters.split()],
+                    filters    = a.tfilters,
                     dropout    = 0,
                 )
             teacher_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='teacher')
@@ -116,6 +116,8 @@ def run_training():
         if load_student or train_student:
             if load_generator or train_generator:
                 inputs = generator.outputs
+                #noisy_min = tf.reduce_min(noisy_inputs)
+                #inputs = tf.multiply(tf.sigmoid(generator.outputs), noisy_inputs - noisy_min) + noisy_min
             else:
                 inputs = tf.placeholder(tf.float32, [None, a.channels, None, a.input_featdim], name='clean')
 
@@ -125,7 +127,7 @@ def run_training():
                     output_dim = a.senones,
                     fc_nodes   = a.sunits,
                     fc_layers  = a.slayers,
-                    filters    = [int(f) for f in a.sfilters.split()],
+                    filters    = a.sfilters,
                     dropout    = a.dropout,
                 )
             student_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='mimic')
