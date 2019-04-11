@@ -94,6 +94,7 @@ class ResNet():
         # Smush last two dimensions
         shape = flat.get_shape().as_list()
         flat = tf.reshape(flat, [batch_size, length, shape[2] * shape[3] // 16])
+        flat = tf.concat((flat, self.inputs[:,0]), axis = -1)
         flat = tf.layers.dropout(flat, rate=dropout, training=self.training)
 
         # Fully conntected part

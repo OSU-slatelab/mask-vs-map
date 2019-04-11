@@ -153,7 +153,7 @@ def run_training():
             base_dir    = a.base_directory,
             flists      = flists,
             stage       = 'tr',
-            shuffle     = False,
+            shuffle     = True,
             channels    = a.channels,
             compute_irm = 'masking' in a.loss_weight,
             #noise_mask  = a.noise_mask,
