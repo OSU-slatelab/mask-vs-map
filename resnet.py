@@ -38,6 +38,7 @@ class ResNet():
         activation  = tf.nn.relu,
         dropout     = 0.3,
         log_mel     = False,
+        framewise     = False,
     ):
         """
         Build the graph.
@@ -72,6 +73,7 @@ class ResNet():
         self.training = tf.placeholder(tf.bool)
         self.fc_nodes = fc_nodes
         self.fc_layers = fc_layers
+        self.framewise = framewise
 
         batch_size = tf.shape(inputs)[0]
         channels = inputs.get_shape().as_list()[1]
@@ -83,6 +85,16 @@ class ResNet():
         else:
             block = inputs
 
+        if framewise:
+            # From [batch, filters, length, feats] to [length, filters, batch, feats]
+            block = tf.transpose(block, [2, 1, 0, 3])
+
+            # stack frames
+            stacked = []
+            for i in range(-5, 6):
+                stacked.append(tf.roll(block, shift = i, axis = 0))
+            block = tf.concat(stacked, axis = 2)
+
         # Convolutional part
         for i, f in enumerate(filters):
             with tf.variable_scope("block{0}".format(i)):
@@ -93,8 +105,11 @@ class ResNet():
 
         # Smush last two dimensions
         shape = flat.get_shape().as_list()
-        flat = tf.reshape(flat, [batch_size, length, shape[2] * shape[3] // 16])
-        flat = tf.concat((flat, self.inputs[:,0]), axis = -1)
+        if self.framewise:
+            flat = tf.reshape(flat, [batch_size, length, shape[2] * shape[3]])
+        else:
+            flat = tf.reshape(flat, [batch_size, length, shape[2] * shape[3] // 2 ** len(filters)])
+
         flat = tf.layers.dropout(flat, rate=dropout, training=self.training)
 
         # Fully conntected part
@@ -167,18 +182,11 @@ class ResNet():
             filters     = filters,
             kernel_size = 3,
             strides     = 2 if downsample else 1,
-            #dilation_rate = 2 if downsample else 1,
             padding     = 'same',
             data_format = 'channels_first',
             activation  = self.activation if not downsample else None,
             kernel_regularizer = tf.contrib.layers.l2_regularizer(0.0001),
         )
-
-        #layer = tf.contrib.layers.instance_norm(
-        #    inputs        = layer,
-        #    activation_fn = self.activation if not downsample else None,
-        #    data_format   = 'NCHW',
-        #)
 
         # Dropout
         if dropout:

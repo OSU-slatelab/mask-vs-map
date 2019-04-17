@@ -54,7 +54,8 @@ parser.add_argument("--output_featdim", type=int, default=256)
 parser.add_argument("--senones", type=int, default=2007)
 parser.add_argument("--characters", type=int, default=27)
 parser.add_argument("--channels", type=int, default=1)
-parser.add_argument("--batch_size", type=int, default=1)
+parser.add_argument("--batch_size", type=int, default=128)
+parser.add_argument("--framewise_mimic", default=False, action="store_true")
 #parser.add_argument("--noise_mask", default=False, action="store_true")
 
 # Loss weights
@@ -90,6 +91,7 @@ def run_training():
                     fc_layers   = a.glayers,
                     filters     = a.gfilters,
                     dropout     = a.dropout,
+                    framewise   = True,
                 )
             generator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='generator')
             load_generator_vars = [var for var in generator_vars if '_scale' not in var.op.name and '_shift' not in var.op.name]
@@ -107,6 +109,8 @@ def run_training():
                     fc_layers  = a.tlayers,
                     filters    = a.tfilters,
                     dropout    = 0,
+                    framewise  = a.framewise_mimic,
+                    #conv_1d    = True,
                 )
             teacher_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='teacher')
             teacher_saver = tf.train.Saver({'mimic' + var.op.name[7:]: var for var in teacher_vars})
@@ -129,6 +133,8 @@ def run_training():
                     fc_layers  = a.slayers,
                     filters    = a.sfilters,
                     dropout    = a.dropout,
+                    framewise  = a.framewise_mimic,
+                    #conv_1d    = True,
                 )
             student_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='mimic')
             student_saver = tf.train.Saver(student_vars)
@@ -153,12 +159,11 @@ def run_training():
             base_dir    = a.base_directory,
             flists      = flists,
             stage       = 'tr',
-            shuffle     = True,
+            shuffle     = False,
             channels    = a.channels,
             compute_irm = 'masking' in a.loss_weight,
-            #noise_mask  = a.noise_mask,
             #logify      = True,
-            batch_size  = a.batch_size,
+            #batch_size  = a.batch_size,
         )
 
         # Create loader
@@ -169,7 +174,6 @@ def run_training():
             shuffle     = False,
             channels    = a.channels,
             compute_irm = 'masking' in a.loss_weight,
-            #noise_mask  = a.noise_mask,
             #logify      = True,
         )
 
@@ -178,6 +182,7 @@ def run_training():
             learn_rate  = a.learn_rate,
             lr_decay    = a.lr_decay,
             loss_weight = a.loss_weight,
+            batch_size  = a.batch_size,
         )
 
         # Begin session
@@ -191,7 +196,7 @@ def run_training():
         if a.generator_pretrain:
             sess.run(tf.variables_initializer(generator.scale_vars))
             generator_loader.restore(sess, tf.train.latest_checkpoint(a.generator_pretrain))
-        else:
+        elif train_generator:
             sess.run(tf.variables_initializer(generator_vars))
 
         # Load teacher

@@ -10,11 +10,11 @@ import struct
 
 import sys
 
-#from tqdm import tqdm
+from tqdm import tqdm
 
 from fgnt.mask_estimation import estimate_IBM
-from fgnt.signal_processing import audioread
-from fgnt.signal_processing import stft
+from fgnt.signal_processing import audioread, audiowrite
+from fgnt.signal_processing import stft, istft
 
 #-----------------------------------------------------------------------------#
 #                            GENERAL I/O FUNCTIONS                            #
@@ -24,7 +24,8 @@ def shrink_to_min(feats, out_shape):
 
     default = feats['clean'] if 'clean' in feats else feats['noisy']
 
-    min_len = np.inf
+    #min_len = np.inf
+    min_len = 1024
     for i in range(len(default)):
         length = default[i].shape[-2]
         if length < min_len:
@@ -61,7 +62,7 @@ def shrink_to_min(feats, out_shape):
     for name in ['clean', 'noisy', 'senone'] & feats.keys():
         feats[name] = np.array(feats[name], dtype = np.float32)
 
-        if name == 'clean' or name == 'noisy':
+        if name != 'senone':
             feats[name] = feats[name].reshape((out_shape[0], out_shape[1], min_len, -1))
         elif out_shape[0] == 1:
             feats[name] = feats[name].reshape((out_shape[0], out_shape[1], min_len))
@@ -98,13 +99,15 @@ def load_arrays_from_numpy(base_dir, flist, idx_list):
 
     return feats
 
-def load_arrays_from_wav(base_dir, flist, idx_list, delay = 0):
+def load_arrays_from_wav(base_dir, flist, idx_list, delay = 0, divisor = 16):
 
-    kwargs = {'time_dim': 1, 'size':512, 'shift':160, 'window_length':400}
+    kwargs = {'time_dim': 1, 'size':512, 'shift':64, 'window_length':512}
 
     feats = []
+    phase = []
     for i, f in enumerate(flist):
         utt = []
+        utt_ph = []
         for idx in idx_list[i]:
 
             # Clean data has one channel, but need to replicate it
@@ -117,16 +120,26 @@ def load_arrays_from_wav(base_dir, flist, idx_list, delay = 0):
                 audio = np.roll(audio, delay, axis = -1)
 
             if audio.ndim == 3:
-                feat = np.abs(stft(audio[:,0], **kwargs)) / 2
+                complex_spec = stft(audio[:,0], **kwargs)
+                feat = np.abs(complex_spec) / 2
                 feat += np.abs(stft(audio[:,1],**kwargs)) / 2
             else:
-                feat = np.abs(stft(audio, **kwargs))
+                complex_spec = stft(audio, **kwargs)
+                feat = np.abs(complex_spec)
+
+            # multiple-of-16-ify
+            if divisor > 1:
+                feat = feat[:,:,:-(feat.shape[-1] % divisor)]
+                pad = ((0,0),(0,divisor - feat.shape[1] % divisor),(0,0))
+                feat = np.pad(feat, pad, 'edge')
 
             utt.append(feat)
+            utt_ph.append(np.angle(complex_spec))
 
         feats.append(np.concatenate(utt))
+        phase.append(np.concatenate(utt_ph))
 
-    return feats
+    return feats, phase
 
 def load_arrays_from_scp(base_dir, flist, remove_deltas = False, divisor = 16):
     feats = []
@@ -152,6 +165,22 @@ def load_arrays_from_scp(base_dir, flist, remove_deltas = False, divisor = 16):
         feats.append(np.stack(utt))
     return feats
 
+def write_wav(magnitude, phase, filename, exponentiate = True, griffin_lim = False):
+    if exponentiate:
+        magnitude = np.exp(magnitude)
+
+    complex_spec = magnitude * np.exp(1j * phase)
+
+    kwargs = {'size':512, 'shift':64, 'window_length':512}
+    resynth = istft(complex_spec, **kwargs)
+
+    if griffin_lim:
+        for i in range(10):
+            complex_spec = magnitude * np.exp(1j * np.angle(stft(resynth, **kwargs)))
+            resynth = istft(complex_spec, **kwargs)
+
+    audiowrite(resynth, filename)
+
 def kaldi_write_mats(ark_path, utt_id, utt_mat):
     ark_write_buf = open(ark_path, "ab")
     utt_mat = np.asarray(utt_mat, dtype=np.float32)
@@ -176,6 +205,10 @@ def read_scp(f):
     for line in f:
         if line.strip() == '':
             continue
+
+        if len(line.split()) == 1:
+            print(line)
+            print("EROR")
 
         uttid, filename, byte = line.split()
         if uttid not in dictionary:
@@ -244,7 +277,7 @@ class DataLoader:
             indexes = indexes[:-(len(indexes) % self.batch_size)]
         indexes = indexes.reshape((-1, self.batch_size))
 
-        for batch_idxs in indexes:#tqdm(indexes):
+        for batch_idxs in tqdm(indexes):
             ids = [self.ids[i] for i in batch_idxs]
             batch = self.get_batch(ids, divisor = 16)
             batch['ids'] = ids
@@ -256,6 +289,11 @@ class DataLoader:
             #batch['frames'] = new_length
 
             yield batch
+
+    def load(self, uttids):
+        batch = self.get_batch(uttids, divisor = 16)
+        batch['ids'] = uttids
+        return batch
 
     def get_batch(self, uttids, divisor = 16):
         """ Load a batch of data from files """
@@ -281,7 +319,8 @@ class DataLoader:
                 
                 flist = [self.flists[name]['data'][uid] for uid in uttids]
                 if self.flists[name]['type'] == 'json':
-                    feats[name], start_idx = load_arrays_from_wav(self.base_dir, flist, channel_idx)
+                    delay = 0 if name != 'clean' else 160
+                    feats[name], feats[name + "_ph"] = load_arrays_from_wav(self.base_dir, flist, channel_idx)
                 elif self.flists[name]['type'] == 'scp':
                     feats[name] = load_arrays_from_scp(self.base_dir, flist, remove_deltas = name == 'noisy')
                 else:
@@ -311,7 +350,7 @@ class DataLoader:
                     feats['irm'] /= 1.3
                 else:
                     feats['irm'] = np.sqrt(feats['clean']) / np.sqrt(feats['noisy'])
-                    feats['irm'] /= 2
+                    #feats['irm'] /= 2
                 feats['irm'][feats['irm'] > 1] = 1
             else:
                 raise ValueError("To compute IRM, clean and noise or noisy signals are required")
