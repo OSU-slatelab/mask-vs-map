@@ -52,7 +52,7 @@ parser.add_argument("--dropout", type=float, default=0.3, help="percentage of ne
 parser.add_argument("--input_featdim", type=int, default=256)
 parser.add_argument("--output_featdim", type=int, default=256)
 parser.add_argument("--senones", type=int, default=2007)
-parser.add_argument("--characters", type=int, default=27)
+parser.add_argument("--characters", type=int, default=28)
 parser.add_argument("--channels", type=int, default=1)
 parser.add_argument("--batch_size", type=int, default=128)
 parser.add_argument("--framewise_mimic", default=False, action="store_true")
@@ -91,7 +91,7 @@ def run_training():
                     fc_layers   = a.glayers,
                     filters     = a.gfilters,
                     dropout     = a.dropout,
-                    framewise   = True,
+                    #framewise   = True,
                 )
             generator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='generator')
             load_generator_vars = [var for var in generator_vars if '_scale' not in var.op.name and '_shift' not in var.op.name]
@@ -126,16 +126,23 @@ def run_training():
                 inputs = tf.placeholder(tf.float32, [None, a.channels, None, a.input_featdim], name='clean')
 
             with tf.variable_scope('mimic'):
-                student =  ResNet(
-                    inputs     = inputs,
-                    output_dim = a.senones,
-                    fc_nodes   = a.sunits,
-                    fc_layers  = a.slayers,
-                    filters    = a.sfilters,
-                    dropout    = a.dropout,
-                    framewise  = a.framewise_mimic,
-                    #conv_1d    = True,
-                )
+                if a.student_model == 'resnet':
+                    student =  ResNet(
+                        inputs     = inputs,
+                        output_dim = a.senones,
+                        fc_nodes   = a.sunits,
+                        fc_layers  = a.slayers,
+                        filters    = a.sfilters,
+                        dropout    = a.dropout,
+                        framewise  = a.framewise_mimic,
+                        #conv_1d    = True,
+                    )
+                elif a.student_model == 'lstm':
+                    from lstm import BiLSTM
+                    student = BiLSTM(
+                        inputs = inputs,
+                        output_shape = [-1, 1, a.characters],
+                    )
             student_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='mimic')
             student_saver = tf.train.Saver(student_vars)
             models['student'] = {'model': student, 'train': train_student, 'vars': student_vars}

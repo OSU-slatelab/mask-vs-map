@@ -206,10 +206,6 @@ def read_scp(f):
         if line.strip() == '':
             continue
 
-        if len(line.split()) == 1:
-            print(line)
-            print("EROR")
-
         uttid, filename, byte = line.split()
         if uttid not in dictionary:
             dictionary[uttid] = [(filename, int(byte))]
@@ -364,9 +360,10 @@ class DataLoader:
                 feats[name] = np.log(feats[name] + 0.01)
 
         if 'trans' in self.flists:
-            indices = np.array([(0,i) for i in range(len(self.flists['trans'][uttid]))], dtype=np.int32)
-            values = np.array(self.flists['trans'][uttid], dtype=np.int32)
-            shape = np.array((1, len(self.flists['trans'][uttid])), dtype=np.int32)
+            uttid = uttids[0]
+            indices = np.array([(0,i) for i in range(len(self.flists['trans']['data'][uttid]))], dtype=np.int32)
+            values = np.array(self.flists['trans']['data'][uttid], dtype=np.int32)
+            shape = np.array((1, len(self.flists['trans']['data'][uttid])), dtype=np.int32)
             feats['trans'] = (indices, values, shape)
 
         return feats

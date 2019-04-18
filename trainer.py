@@ -80,11 +80,11 @@ class Trainer:
 
         # Create primary train op
         self.losses['average'] = {'op': self.loss}
-        self._create_train_op(self.loss, var_list, max_norm, self.learn_rate, lr_decay)
+        self.train_op =  self._create_train_op(self.loss, var_list, max_norm, self.learn_rate, lr_decay)
 
     def initialize_inputs(self, models, loss_weight):
         """ Create placeholders for all types of inputs """
-        self.irm, self.ibm_x, self.ibm_n, self.trans = None, None, None, None
+        self.irm, self.ibm_x, self.ibm_n, self.senone, self.trans = None, None, None, None, None
         if 'generator' in models:
 
             self.noisy = models['generator']['model'].inputs
@@ -99,8 +99,6 @@ class Trainer:
             if 'noise-mask' in loss_weight:
                 self.ibm_n = tf.placeholder(tf.float32, shape = shape, name = 'ibm_n')
 
-            if 'ctc' in loss_weight:
-                self.trans = tf.sparse_placeholder(tf.int32)
 
             if 'teacher' in models:
                 self.clean = models['teacher']['model'].inputs
@@ -114,6 +112,9 @@ class Trainer:
         else:
             self.clean = models['student']['model'].inputs
             self.noisy = None
+
+        if 'ctc' in loss_weight:
+            self.trans = tf.sparse_placeholder(tf.int32)
 
         # The only time we need a senone placeholder is if theres a cross-entropy loss
         if 'cross-ent' in loss_weight:
@@ -234,6 +235,7 @@ class Trainer:
         opt = tf.train.AdamOptimizer(self.learn_rate_pl)
         #optim = tf.train.GradientDescentOptimizer(self.learn_rate_pl)
         #return optim.apply_gradients(grad_var_pairs, global_step=global_step)
+        return opt.minimize(loss, var_list = var_list, global_step = global_step)
 
 
         ## Optimizer definition - nothing different from any classical example
@@ -241,20 +243,20 @@ class Trainer:
 
         ## Retrieve all trainable variables you defined in your graph
         #tvs = tf.trainable_variables()
-        tvs = var_list
+        #tvs = var_list
         ## Creation of a list of variables with the same shape as the trainable ones
         # initialized with 0s
-        accum_vars = [tf.Variable(tf.zeros_like(tv.initialized_value()), trainable=False) for tv in tvs]
-        self.zero_ops = [tv.assign(tf.zeros_like(tv)) for tv in accum_vars]
+        #accum_vars = [tf.Variable(tf.zeros_like(tv.initialized_value()), trainable=False) for tv in tvs]
+        #self.zero_ops = [tv.assign(tf.zeros_like(tv)) for tv in accum_vars]
 
         ## Calls the compute_gradients function of the optimizer to obtain... the list of gradients
-        gvs = opt.compute_gradients(loss, tvs)
+        #gvs = opt.compute_gradients(loss, tvs)
 
         ## Adds to each element from the list you initialized earlier with zeros its gradient (works because accum_vars and gvs are in the same order)
-        self.accum_ops = [accum_vars[i].assign_add(gv[0]) for i, gv in enumerate(gvs)]
+        #self.accum_ops = [accum_vars[i].assign_add(gv[0]) for i, gv in enumerate(gvs)]
 
         ## Define the training step (part with variable value update)
-        self.train_step = opt.apply_gradients([(accum_vars[i], gv[1]) for i, gv in enumerate(gvs)])
+        #self.train_step = opt.apply_gradients([(accum_vars[i], gv[1]) for i, gv in enumerate(gvs)])
 
 
 
@@ -290,9 +292,9 @@ class Trainer:
             # Run all ops
             output = sess.run(ops, self.feed_dict)
 
-            if training and count % self.batch_size == 0:
-                sess.run(self.train_step)
-                sess.run(self.zero_ops)
+            #if training and count % self.batch_size == 0:
+            #    sess.run(self.train_step)
+            #    sess.run(self.zero_ops)
 
             # Update losses
             for label in self.losses:
@@ -323,8 +325,8 @@ class Trainer:
 
         # Doesn't produce output, so no map needed
         if training:
-            #ops.append(self.train)
-            ops.extend(self.accum_ops)
+            ops.append(self.train_op)
+            #ops.extend(self.accum_ops)
 
         return ops
 
