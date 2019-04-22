@@ -4,7 +4,8 @@ import tfsignal
 
 def filterbank(inputs):
     inputs = tf.squeeze(inputs, axis=0)
-    inputs = tf.nn.relu(inputs)+1e-6
+    #inputs = tf.nn.relu(inputs)+1e-6
+    inputs = tf.exp(inputs)
 
     # Convert to log-mel
     num_bins = inputs.shape[-1].value
@@ -18,7 +19,7 @@ def filterbank(inputs):
     )
     mel_spectrograms = tf.tensordot(inputs, linear_to_mel_weight_matrix, 1)
     mel_spectrograms.set_shape(inputs.shape[:-1].concatenate(linear_to_mel_weight_matrix.shape[-1:]))
-    log_mel = tf.expand_dims(tf.log(mel_spectrograms + 1e-6), axis=0)
+    log_mel = tf.expand_dims(tf.log(mel_spectrograms + 0.1), axis=0)
 
     return log_mel
 

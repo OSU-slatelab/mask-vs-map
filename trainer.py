@@ -235,7 +235,7 @@ class Trainer:
         opt = tf.train.AdamOptimizer(self.learn_rate_pl)
         #optim = tf.train.GradientDescentOptimizer(self.learn_rate_pl)
         #return optim.apply_gradients(grad_var_pairs, global_step=global_step)
-        return opt.minimize(loss, var_list = var_list, global_step = global_step)
+        #return opt.minimize(loss, var_list = var_list, global_step = global_step)
 
 
         ## Optimizer definition - nothing different from any classical example
@@ -243,20 +243,20 @@ class Trainer:
 
         ## Retrieve all trainable variables you defined in your graph
         #tvs = tf.trainable_variables()
-        #tvs = var_list
+        tvs = var_list
         ## Creation of a list of variables with the same shape as the trainable ones
         # initialized with 0s
-        #accum_vars = [tf.Variable(tf.zeros_like(tv.initialized_value()), trainable=False) for tv in tvs]
-        #self.zero_ops = [tv.assign(tf.zeros_like(tv)) for tv in accum_vars]
+        accum_vars = [tf.Variable(tf.zeros_like(tv.initialized_value()), trainable=False) for tv in tvs]
+        self.zero_ops = [tv.assign(tf.zeros_like(tv)) for tv in accum_vars]
 
         ## Calls the compute_gradients function of the optimizer to obtain... the list of gradients
-        #gvs = opt.compute_gradients(loss, tvs)
+        gvs = opt.compute_gradients(loss, tvs)
 
         ## Adds to each element from the list you initialized earlier with zeros its gradient (works because accum_vars and gvs are in the same order)
-        #self.accum_ops = [accum_vars[i].assign_add(gv[0]) for i, gv in enumerate(gvs)]
+        self.accum_ops = [accum_vars[i].assign_add(gv[0]) for i, gv in enumerate(gvs)]
 
         ## Define the training step (part with variable value update)
-        #self.train_step = opt.apply_gradients([(accum_vars[i], gv[1]) for i, gv in enumerate(gvs)])
+        self.train_step = opt.apply_gradients([(accum_vars[i], gv[1]) for i, gv in enumerate(gvs)])
 
 
 
@@ -278,7 +278,7 @@ class Trainer:
         ops = self.get_ops(training)
 
         # Iterate dataset
-        for batch in loader.batchify():
+        for batch in loader.batchify(epoch):
             if self.verbose:
                 print("Batch", count)
             count += 1
@@ -292,9 +292,9 @@ class Trainer:
             # Run all ops
             output = sess.run(ops, self.feed_dict)
 
-            #if training and count % self.batch_size == 0:
-            #    sess.run(self.train_step)
-            #    sess.run(self.zero_ops)
+            if training and count % self.batch_size == 0:
+                sess.run(self.train_step)
+                sess.run(self.zero_ops)
 
             # Update losses
             for label in self.losses:
@@ -325,8 +325,8 @@ class Trainer:
 
         # Doesn't produce output, so no map needed
         if training:
-            ops.append(self.train_op)
-            #ops.extend(self.accum_ops)
+            #ops.append(self.train_op)
+            ops.extend(self.accum_ops)
 
         return ops
 

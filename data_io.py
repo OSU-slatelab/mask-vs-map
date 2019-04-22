@@ -20,12 +20,12 @@ from fgnt.signal_processing import stft, istft
 #                            GENERAL I/O FUNCTIONS                            #
 #-----------------------------------------------------------------------------#
 
-def shrink_to_min(feats, out_shape):
+def shrink_to_min(feats, out_shape, max_length = np.inf):
 
     default = feats['clean'] if 'clean' in feats else feats['noisy']
 
-    #min_len = np.inf
-    min_len = 1024
+    min_len = max_length
+    #min_len = 1024
     for i in range(len(default)):
         length = default[i].shape[-2]
         if length < min_len:
@@ -34,7 +34,7 @@ def shrink_to_min(feats, out_shape):
     indexes = []
     for i in range(len(default)):
         length = default[i].shape[-2]
-        feats['frames'] = length
+        feats['frames'] = min(min_len, length)
         if length > min_len:
             idx = np.random.randint(length - min_len)
 
@@ -264,7 +264,7 @@ class DataLoader:
             self.ids = list(self.flists[name]['data'].keys())
             self.available_channels = len(self.flists[name]['data'][self.ids[0]])
 
-    def batchify(self):
+    def batchify(self, epoch = None):
         """ Iterate through batches """
         
         n = len(self.ids)
@@ -273,9 +273,15 @@ class DataLoader:
             indexes = indexes[:-(len(indexes) % self.batch_size)]
         indexes = indexes.reshape((-1, self.batch_size))
 
+        #if epoch is not None:
+        #    max_length = 800 + 48 * epoch
+        #else:
+        #max_length = np.inf
+        max_length = 1600
+
         for batch_idxs in tqdm(indexes):
             ids = [self.ids[i] for i in batch_idxs]
-            batch = self.get_batch(ids, divisor = 16)
+            batch = self.get_batch(ids, divisor = 16, max_length = max_length)
             batch['ids'] = ids
 
             #batch, feat_length = self.get_batch(batch['ids'])
@@ -291,7 +297,7 @@ class DataLoader:
         batch['ids'] = uttids
         return batch
 
-    def get_batch(self, uttids, divisor = 16):
+    def get_batch(self, uttids, divisor = 16, max_length = np.inf):
         """ Load a batch of data from files """
 
         batch = {}
@@ -325,7 +331,7 @@ class DataLoader:
         if 'senone' in self.flists:
             feats['senone'] = [self.flists['senone']['data'][u] for u in uttids]
 
-        feats = shrink_to_min(feats, out_shape)
+        feats = shrink_to_min(feats, out_shape, max_length)
 
         if self.compute_ibm:
             if 'noise' in feats and 'clean' in feats:

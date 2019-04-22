@@ -92,6 +92,7 @@ def run_training():
                     filters     = a.gfilters,
                     dropout     = a.dropout,
                     #framewise   = True,
+                    #addin       = True,
                 )
             generator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='generator')
             load_generator_vars = [var for var in generator_vars if '_scale' not in var.op.name and '_shift' not in var.op.name]
@@ -166,7 +167,7 @@ def run_training():
             base_dir    = a.base_directory,
             flists      = flists,
             stage       = 'tr',
-            shuffle     = False,
+            shuffle     = True,
             channels    = a.channels,
             compute_irm = 'masking' in a.loss_weight,
             #logify      = True,
@@ -208,6 +209,9 @@ def run_training():
 
         # Load teacher
         if a.teacher_pretrain:
+            #ckpt = tf.train.latest_checkpoint(a.teacher_pretrain)
+            #from tensorflow.python.tools.inspect_checkpoint import print_tensors_in_checkpoint_file
+            #print_tensors_in_checkpoint_file(ckpt, all_tensors=False, tensor_name='', all_tensor_names=True)
             teacher_saver.restore(sess, tf.train.latest_checkpoint(a.teacher_pretrain))
         
         # Load student

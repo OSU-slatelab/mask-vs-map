@@ -38,7 +38,8 @@ class ResNet():
         activation  = tf.nn.relu,
         dropout     = 0.3,
         log_mel     = False,
-        framewise     = False,
+        framewise   = False,
+        addin       = False,
     ):
         """
         Build the graph.
@@ -110,6 +111,9 @@ class ResNet():
         else:
             flat = tf.reshape(flat, [batch_size, length, shape[2] * shape[3] // 2 ** len(filters)])
 
+        if addin:
+            flat = tf.concat([flat, tf.squeeze(inputs, axis=0)], axis = -1)
+
         flat = tf.layers.dropout(flat, rate=dropout, training=self.training)
 
         # Fully conntected part
@@ -176,12 +180,20 @@ class ResNet():
             outputs of convolutional layer
         """
 
+        strides = 2 if downsample else 1
+        #if self.framewise and downsample:
+        #    strides = (1, 2)
+
+        kernel_size = 3
+        #if self.framewise and not downsample:
+        #    kernel_size = (1, 3)
+
         # Apply convolution
         layer = tf.layers.conv2d(
             inputs      = inputs,
             filters     = filters,
-            kernel_size = 3,
-            strides     = 2 if downsample else 1,
+            kernel_size = kernel_size,
+            strides     = strides,
             padding     = 'same',
             data_format = 'channels_first',
             activation  = self.activation if not downsample else None,
