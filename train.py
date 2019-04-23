@@ -28,6 +28,7 @@ parser.add_argument("--teacher_pretrain", default=None, help="directory with cri
 parser.add_argument("--student_pretrain", default=None, help="directory with critic weights")
 parser.add_argument("--generator_pretrain", default=None, help="directory with generator pretrained weights")
 parser.add_argument("--generator_checkpoints", default=None, help="directory to store generator weights")
+parser.add_argument("--generator_model", default="resnet", help="resnet or lstm or dnn")
 parser.add_argument("--student_checkpoints", default=None, help="directory to store student weights")
 parser.add_argument("--student_model", default="resnet", help="resnet or lstm or dnn")
 #parser.add_argument("--model_file", default=None)
@@ -83,18 +84,29 @@ def run_training():
         if load_generator or train_generator:
             with tf.variable_scope('generator'):
                 noisy_inputs = tf.placeholder(tf.float32, [None, a.channels, None, a.input_featdim], name='noisy')
-                generator = ResNet(
-                    inputs      = noisy_inputs,
-                    output_dim  = a.output_featdim,
-                    output_type = a.loss_weight.keys() & ['fidelity', 'masking', 'map-as-mask-mimic'],
-                    fc_nodes    = a.gunits,
-                    fc_layers   = a.glayers,
-                    filters     = a.gfilters,
-                    dropout     = a.dropout,
-                    #framewise   = True,
-                    #addin       = True,
-                )
-            generator_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='generator')
+
+                output_type = a.loss_weight.keys() & ['fidelity', 'masking', 'map-as-mask-mimic']
+
+                if a.generator_model == 'resnet':
+                    generator = ResNet(
+                        inputs      = noisy_inputs,
+                        output_dim  = a.output_featdim,
+                        output_type = output_type,
+                        fc_nodes    = a.gunits,
+                        fc_layers   = a.glayers,
+                        filters     = a.gfilters,
+                        dropout     = a.dropout,
+                        #framewise   = True,
+                        addin       = True,
+                    )
+                elif a.generator_model == 'dnn':
+                    from dnn import DNN
+                    generator = DNN(
+                        inputs     = noisy_inputs,
+                        output_dim = a.output_featdim,
+                        output_type = output_type,
+                    )
+            generator_vars = tf.trainable_variables(scope='generator')
             load_generator_vars = [var for var in generator_vars if '_scale' not in var.op.name and '_shift' not in var.op.name]
             generator_loader = tf.train.Saver(load_generator_vars)
             generator_saver = tf.train.Saver(generator_vars)
@@ -113,7 +125,7 @@ def run_training():
                     framewise  = a.framewise_mimic,
                     #conv_1d    = True,
                 )
-            teacher_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='teacher')
+            teacher_vars = tf.trainable_variables(scope='teacher')
             teacher_saver = tf.train.Saver({'mimic' + var.op.name[7:]: var for var in teacher_vars})
             models['teacher'] = {'model': teacher, 'train': False, 'vars': teacher_vars}
 
@@ -144,7 +156,7 @@ def run_training():
                         inputs = inputs,
                         output_shape = [-1, 1, a.characters],
                     )
-            student_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='mimic')
+            student_vars = tf.trainable_variables(scope='mimic')
             student_saver = tf.train.Saver(student_vars)
             models['student'] = {'model': student, 'train': train_student, 'vars': student_vars}
 

@@ -276,8 +276,8 @@ class DataLoader:
         #if epoch is not None:
         #    max_length = 800 + 48 * epoch
         #else:
-        #max_length = np.inf
-        max_length = 1600
+        max_length = np.inf
+        #max_length = 1600
 
         for batch_idxs in tqdm(indexes):
             ids = [self.ids[i] for i in batch_idxs]

@@ -253,7 +253,7 @@ class Trainer:
         gvs = opt.compute_gradients(loss, tvs)
 
         ## Adds to each element from the list you initialized earlier with zeros its gradient (works because accum_vars and gvs are in the same order)
-        self.accum_ops = [accum_vars[i].assign_add(gv[0]) for i, gv in enumerate(gvs)]
+        self.accum_ops = [accum_vars[i].assign_add(gv[0]) for i, gv in enumerate(gvs) if gv[0] is not None]
 
         ## Define the training step (part with variable value update)
         self.train_step = opt.apply_gradients([(accum_vars[i], gv[1]) for i, gv in enumerate(gvs)])
