@@ -15,6 +15,7 @@ class DNN():
         context    = 5,
         activation = tf.nn.relu,
         dropout    = 0.3,
+        output_type = ['fidelity'],
     ):
         """
         Build the graph.
@@ -49,7 +50,7 @@ class DNN():
         self.training = tf.placeholder(tf.bool)
 
         # Pad inputs for contextual frames
-        padding = [[0, 0], [0, 0] [context, context], [0, 0]]
+        padding = [[0, 0], [0, 0], [context, context], [0, 0]]
         padded_inputs = tf.pad(inputs, padding, "REFLECT")
 
         #self.final_input = padded_inputs
@@ -65,6 +66,11 @@ class DNN():
             name        = 'fc0',
         )
 
+        # Put channels last for DNN
+        fc = tf.transpose(fc, [0, 2, 3, 1])
+        fc = tf.layers.dropout(fc, rate=dropout, training=self.training)
+
+        # Actual fully connected layers
         for i in range(1, layers):
             fc = tf.layers.dense(
                 inputs     = fc,
