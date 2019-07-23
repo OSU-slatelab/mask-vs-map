@@ -26,7 +26,9 @@ parser.add_argument("--senone_file", default=None, help="The directory the data 
 parser.add_argument("--trans_file", default=None, help="The directory the data is in")
 parser.add_argument("--teacher_pretrain", default=None, help="directory with critic weights")
 parser.add_argument("--student_pretrain", default=None, help="directory with critic weights")
+parser.add_argument("--student_file", default=None, help="checkpoint file for student weights")
 parser.add_argument("--generator_pretrain", default=None, help="directory with generator pretrained weights")
+parser.add_argument("--generator_file", default=None, help="checkpoint file for generator weights")
 parser.add_argument("--generator_checkpoints", default=None, help="directory to store generator weights")
 parser.add_argument("--generator_model", default="resnet", help="resnet or lstm or dnn")
 parser.add_argument("--student_checkpoints", default=None, help="directory to store student weights")
@@ -57,6 +59,7 @@ parser.add_argument("--characters", type=int, default=28)
 parser.add_argument("--channels", type=int, default=1)
 parser.add_argument("--batch_size", type=int, default=128)
 parser.add_argument("--framewise_mimic", default=False, action="store_true")
+parser.add_argument("--logify", default=False, action="store_true")
 #parser.add_argument("--noise_mask", default=False, action="store_true")
 
 # Loss weights
@@ -83,7 +86,8 @@ def run_training():
         # Define our generator model
         if load_generator or train_generator:
             with tf.variable_scope('generator'):
-                noisy_inputs = tf.placeholder(tf.float32, [None, a.channels, None, a.input_featdim], name='noisy')
+                #noisy_inputs = tf.placeholder(tf.float32, [None, a.channels, None, a.input_featdim], name='noisy')
+                noisy_inputs = tf.placeholder(tf.float32, [1, 1, None, a.input_featdim], name='noisy')
 
                 output_type = a.loss_weight.keys() & ['fidelity', 'masking', 'map-as-mask-mimic']
 
@@ -96,8 +100,8 @@ def run_training():
                         fc_layers   = a.glayers,
                         filters     = a.gfilters,
                         dropout     = a.dropout,
-                        #framewise   = True,
-                        addin       = True,
+                        framewise   = True,
+                        #addin       = True,
                     )
                 elif a.generator_model == 'dnn':
                     from dnn import DNN
@@ -106,7 +110,7 @@ def run_training():
                         output_dim = a.output_featdim,
                         output_type = output_type,
                     )
-            generator_vars = tf.trainable_variables(scope='generator')
+            generator_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
             load_generator_vars = [var for var in generator_vars if '_scale' not in var.op.name and '_shift' not in var.op.name]
             generator_loader = tf.train.Saver(load_generator_vars)
             generator_saver = tf.train.Saver(generator_vars)
@@ -114,7 +118,8 @@ def run_training():
 
         if load_teacher:
             with tf.variable_scope('teacher'):
-                clean_inputs = tf.placeholder(tf.float32, [None, a.channels, None, a.output_featdim], name='clean')
+                #clean_inputs = tf.placeholder(tf.float32, [None, a.channels, None, a.output_featdim], name='clean')
+                clean_inputs = tf.placeholder(tf.float32, [1, 1, None, a.output_featdim], name='clean')
                 teacher = ResNet(
                     inputs     = clean_inputs,
                     output_dim = a.senones,
@@ -125,7 +130,7 @@ def run_training():
                     framewise  = a.framewise_mimic,
                     #conv_1d    = True,
                 )
-            teacher_vars = tf.trainable_variables(scope='teacher')
+            teacher_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='teacher')
             teacher_saver = tf.train.Saver({'mimic' + var.op.name[7:]: var for var in teacher_vars})
             models['teacher'] = {'model': teacher, 'train': False, 'vars': teacher_vars}
 
@@ -133,10 +138,9 @@ def run_training():
         if load_student or train_student:
             if load_generator or train_generator:
                 inputs = generator.outputs
-                #noisy_min = tf.reduce_min(noisy_inputs)
-                #inputs = tf.multiply(tf.sigmoid(generator.outputs), noisy_inputs - noisy_min) + noisy_min
             else:
-                inputs = tf.placeholder(tf.float32, [None, a.channels, None, a.input_featdim], name='clean')
+                #inputs = tf.placeholder(tf.float32, [None, a.channels, None, a.input_featdim], name='clean')
+                inputs = tf.placeholder(tf.float32, [1, 1, None, a.input_featdim], name='clean')
 
             with tf.variable_scope('mimic'):
                 if a.student_model == 'resnet':
@@ -148,7 +152,6 @@ def run_training():
                         filters    = a.sfilters,
                         dropout    = a.dropout,
                         framewise  = a.framewise_mimic,
-                        #conv_1d    = True,
                     )
                 elif a.student_model == 'lstm':
                     from lstm import BiLSTM
@@ -156,7 +159,7 @@ def run_training():
                         inputs = inputs,
                         output_shape = [-1, 1, a.characters],
                     )
-            student_vars = tf.trainable_variables(scope='mimic')
+            student_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='mimic')
             student_saver = tf.train.Saver(student_vars)
             models['student'] = {'model': student, 'train': train_student, 'vars': student_vars}
 
@@ -174,6 +177,10 @@ def run_training():
             if flist[-1] is not None:
                 flists.append(flist)
 
+        for loss_type in ['masking', 'map-as-mask-mimic', 'fidelity']:
+            if loss_type in a.loss_weight and a.loss_weight[loss_type] == 0:
+                del a.loss_weight[loss_type]
+
         # Create loader for train data
         train_loader = DataLoader(
             base_dir    = a.base_directory,
@@ -182,8 +189,7 @@ def run_training():
             shuffle     = True,
             channels    = a.channels,
             compute_irm = 'masking' in a.loss_weight,
-            #logify      = True,
-            #batch_size  = a.batch_size,
+            logify      = a.logify,
         )
 
         # Create loader
@@ -194,7 +200,7 @@ def run_training():
             shuffle     = False,
             channels    = a.channels,
             compute_irm = 'masking' in a.loss_weight,
-            #logify      = True,
+            logify      = a.logify,
         )
 
         trainer = Trainer(
@@ -228,7 +234,10 @@ def run_training():
         
         # Load student
         if a.student_pretrain:
-            student_saver.restore(sess, tf.train.latest_checkpoint(a.student_pretrain))
+            if a.student_file:
+                student_saver.restore(sess, os.path.join(a.student_pretrain, a.student_file))
+            else:
+                student_saver.restore(sess, tf.train.latest_checkpoint(a.student_pretrain))
         elif train_student:
             sess.run(tf.variables_initializer(student_vars))
 

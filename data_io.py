@@ -71,75 +71,51 @@ def shrink_to_min(feats, out_shape, max_length = np.inf):
 
     return feats
 
-def load_arrays_from_numpy(base_dir, flist, idx_list):
+def load_arrays_from_numpy(base_dir, fname):
 
-    min_len = np.inf
-    feats = {'clean':[], 'noisy':[]}
-    for i, f in enumerate(flist):
-        data = np.load(os.path.join(base_dir, f))
-        feats['clean'].append(np.squeeze(data['clean'],axis=0)[idx_list[i]])
-        feats['noisy'].append(np.squeeze(data['noisy'],axis=0)[idx_list[i]])
+    feats = {}
+    data = np.load(os.path.join(base_dir, fname[0]))
+    feats['noisy'] = data['noisy']
+    feats['frames'] = feats['noisy'].shape[-2]
 
-        if 'senone' in data:
-            if 'senone' not in feats:
-                feats['senone'] = []
-                feats['senone_length'] = []
+    if 'clean' in data:
+        feats['clean'] = data['clean']
+    if 'senone' in data:
+        if 'senone' not in feats:
+            feats['senone'] = []
+            feats['senone_length'] = []
 
-            #if len(idx_list[i]) > 1:
-            #    senone = np.tile(data['senone'], (len(idx_list[i]), 1))
-            #else:
-            senone = np.squeeze(data['senone'])
+        senone = np.squeeze(data['senone'])
 
-            feats['senone'].append(senone)
-            feats['senone_length'].append(data['senone_length'])
-
-        length = data['clean'].shape[-2]
-        if length < min_len:
-            min_len = length
+        feats['senone'].append(senone)
+        feats['senone_length'].append(data['senone_length'])
 
     return feats
 
-def load_arrays_from_wav(base_dir, flist, idx_list, delay = 0, divisor = 16):
+def load_arrays_from_wav(base_dir, fname, idx, delay = 0, divisor = 16):
 
-    kwargs = {'time_dim': 1, 'size':512, 'shift':64, 'window_length':512}
+    kwargs = {'time_dim': 1, 'size':512, 'shift':160, 'window_length':400}
 
-    feats = []
-    phase = []
-    for i, f in enumerate(flist):
-        utt = []
-        utt_ph = []
-        for idx in idx_list[i]:
+    filename = os.path.join(base_dir, fname[idx])
+    audio = np.expand_dims(audioread(filename), axis = 0)
+    if delay > 0:
+        audio = np.roll(audio, delay, axis = -1)
 
-            # Clean data has one channel, but need to replicate it
-            if idx >= len(f):
-                idx = 0
+    if audio.ndim == 3:
+        complex_spec = stft(audio[:,0], **kwargs)
+        feats = complex_spec / 2
+        feats += stft(audio[:,1],**kwargs) / 2
+    else:
+        complex_spec = stft(audio, **kwargs)
+        feats = complex_spec
 
-            filename = os.path.join(base_dir, f[idx])
-            audio = np.expand_dims(audioread(filename), axis = 0)
-            if delay > 0:
-                audio = np.roll(audio, delay, axis = -1)
+    # multiple-of-16-ify
+    if divisor > 1:
+        feats = feats[:,:,:-(feats.shape[-1] % divisor)]
+        pad = ((0,0),(0,divisor - feats.shape[1] % divisor),(0,0))
+        feats = np.pad(feats, pad, 'edge')
 
-            if audio.ndim == 3:
-                complex_spec = stft(audio[:,0], **kwargs)
-                feat = np.abs(complex_spec) / 2
-                feat += np.abs(stft(audio[:,1],**kwargs)) / 2
-            else:
-                complex_spec = stft(audio, **kwargs)
-                feat = np.abs(complex_spec)
-
-            # multiple-of-16-ify
-            if divisor > 1:
-                feat = feat[:,:,:-(feat.shape[-1] % divisor)]
-                pad = ((0,0),(0,divisor - feat.shape[1] % divisor),(0,0))
-                feat = np.pad(feat, pad, 'edge')
-
-            utt.append(feat)
-            utt_ph.append(np.angle(complex_spec))
-
-        feats.append(np.concatenate(utt))
-        phase.append(np.concatenate(utt_ph))
-
-    return feats, phase
+    return feats.astype(np.complex64)
 
 def load_arrays_from_scp(base_dir, flist, remove_deltas = False, divisor = 16):
     feats = []
@@ -257,7 +233,7 @@ class DataLoader:
         # Get the ids and 
         if 'numpy' in self.flists:
             self.ids = list(self.flists['numpy']['data'].keys())
-            arrays = np.load(os.path.join(base_dir, self.flists['numpy']['data'][self.ids[0]]))
+            arrays = np.load(os.path.join(base_dir, self.flists['numpy']['data'][self.ids[0]][0]))
             self.available_channels = arrays['clean'].shape[1]
         else:
             name = 'noisy' if 'noisy' in self.flists else 'clean'
@@ -269,69 +245,75 @@ class DataLoader:
         
         n = len(self.ids)
         indexes = np.random.permutation(n) if self.shuffle else np.arange(n)
-        if len(indexes) % self.batch_size != 0:
-            indexes = indexes[:-(len(indexes) % self.batch_size)]
-        indexes = indexes.reshape((-1, self.batch_size))
-
-        #if epoch is not None:
-        #    max_length = 800 + 48 * epoch
-        #else:
         max_length = np.inf
-        #max_length = 1600
+        #max_length = 800
 
-        for batch_idxs in tqdm(indexes):
-            ids = [self.ids[i] for i in batch_idxs]
-            batch = self.get_batch(ids, divisor = 16, max_length = max_length)
-            batch['ids'] = ids
+        for batch_idx in tqdm(indexes):
 
-            #batch, feat_length = self.get_batch(batch['ids'])
-            #batch, new_length = self.normalize_batch(batch, feat_length, divisor = 16)
-            
-            #batch['added'] = new_length - feat_length
-            #batch['frames'] = new_length
+            for i in range(self.channels):
+                batch = self.get_batch(self.ids[batch_idx], channel = i, divisor = 1, max_length = max_length)
+                batch['id'] = self.ids[batch_idx]
 
-            yield batch
+                yield batch
 
-    def load(self, uttids):
-        batch = self.get_batch(uttids, divisor = 16)
-        batch['ids'] = uttids
+    def load(self, uttid):
+        batch = self.get_batch(uttid, divisor = 1)
+        batch['id'] = uttid
         return batch
 
-    def get_batch(self, uttids, divisor = 16, max_length = np.inf):
+    def get_batch(self, uttid, channel = 0, divisor = 16, max_length = np.inf):
         """ Load a batch of data from files """
 
         batch = {}
 
-        # Pick channels
-        if self.shuffle:
-            channel_idx = np.random.randint(self.available_channels, size = (self.batch_size, self.channels))
-            out_shape = (self.batch_size, self.channels)
-        else:
-            channel_idx = np.tile(np.arange(self.available_channels), (self.batch_size, 1))
-            out_shape = (self.batch_size * (self.available_channels // self.channels), self.channels)
-
-
         if 'numpy' in self.flists:
-            flist = [self.flists['numpy']['data'][uid] for uid in uttids]
-            feats = load_arrays_from_numpy(self.base_dir, flist, channel_idx)
+            fname = self.flists['numpy']['data'][uttid]
+            feats = load_arrays_from_numpy(self.base_dir, fname)
         else:
             feats = {}
             start_idx = None
             for name in ['clean', 'noisy', 'noise'] & self.flists.keys():
                 
-                flist = [self.flists[name]['data'][uid] for uid in uttids]
+                fname = self.flists[name]['data'][uttid]
                 if self.flists[name]['type'] == 'json':
-                    delay = 0 if name != 'clean' else 160
-                    feats[name], feats[name + "_ph"] = load_arrays_from_wav(self.base_dir, flist, channel_idx)
+                    feats[name] = load_arrays_from_wav(self.base_dir, fname, idx = channel)
+                    feats[name] = np.expand_dims(feats[name], axis = 0)
                 elif self.flists[name]['type'] == 'scp':
-                    feats[name] = load_arrays_from_scp(self.base_dir, flist, remove_deltas = name == 'noisy')
+                    feats[name] = load_arrays_from_scp(self.base_dir, fname, remove_deltas = name == 'noisy')
                 else:
                     raise ValueError("Type must be one of 'json', 'scp'")
 
-        if 'senone' in self.flists:
-            feats['senone'] = [self.flists['senone']['data'][u] for u in uttids]
+        if 'noise' in feats:
+            feats['noisy'] = feats['clean'] + feats['noise']
+            del feats['noise']
 
-        feats = shrink_to_min(feats, out_shape, max_length)
+        # Reshape features
+        for name in ['clean', 'noisy'] & feats.keys():
+            if feats[name].dtype == 'complex64':
+                feats[name] = np.abs(feats[name])
+            if self.logify:
+                feats[name] = np.log(feats[name] + 0.01)
+
+        if 'senone' in self.flists:
+            feats['senone'] = self.flists['senone']['data'][uttid]
+            feats['senone'] = np.expand_dims(feats['senone'], axis = 0)
+
+        if 'senone' in feats:
+            feats['senone'] = np.expand_dims(feats['senone'], axis = 0)
+            if feats['senone'].shape[2] < feats['clean'].shape[2]:
+                padding = [(0,0), (0,0), (0,feats['clean'].shape[2]-feats['senone'].shape[2])]
+                feats['senone'] = np.pad(feats['senone'], padding, 'edge')
+
+        start = -1
+        for name in ['clean', 'noisy', 'noise', 'senone'] & feats.keys():
+            if feats[name].shape[2] > max_length:
+                if start == -1:
+                    start = np.random.randint(feats[name].shape[2] - max_length)
+
+                feats[name] = feats[name][:,:,start:start+max_length]
+            feats['frames'] = feats[name].shape[-2]
+
+        #feats = shrink_to_min(feats, out_shape, max_length)
 
         if self.compute_ibm:
             if 'noise' in feats and 'clean' in feats:
@@ -349,7 +331,7 @@ class DataLoader:
                 if np.min(feats['clean']) < 0:
                     minimum = min(np.min(feats['clean']), np.min(feats['noisy']))
                     feats['irm'] = (feats['clean'] - minimum + 1e-6) / (feats['noisy'] - minimum + 1e-6)
-                    feats['irm'] /= 1.3
+                    #feats['irm'] /= 1.3
                 else:
                     feats['irm'] = np.sqrt(feats['clean']) / np.sqrt(feats['noisy'])
                     #feats['irm'] /= 2
@@ -357,16 +339,11 @@ class DataLoader:
             else:
                 raise ValueError("To compute IRM, clean and noise or noisy signals are required")
 
-        if 'noise' in feats:
-            feats['noisy'] = feats['noise'] + feats['clean']
+        #if 'noise' in feats:
+        #    feats['noisy'] = feats['noise'] + feats['clean']
 
-        # Reshape features
-        for name in ['clean', 'noisy'] & feats.keys():
-            if self.logify:
-                feats[name] = np.log(feats[name] + 0.01)
 
         if 'trans' in self.flists:
-            uttid = uttids[0]
             indices = np.array([(0,i) for i in range(len(self.flists['trans']['data'][uttid]))], dtype=np.int32)
             values = np.array(self.flists['trans']['data'][uttid], dtype=np.int32)
             shape = np.array((1, len(self.flists['trans']['data'][uttid])), dtype=np.int32)
